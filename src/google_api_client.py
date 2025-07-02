@@ -11,7 +11,14 @@ from google.auth.transport.requests import Request as GoogleAuthRequest
 
 from .auth import get_credentials, save_credentials, get_user_project_id, onboard_user
 from .utils import get_user_agent
-from .config import CODE_ASSIST_ENDPOINT, DEFAULT_SAFETY_SETTINGS
+from .config import (
+    CODE_ASSIST_ENDPOINT,
+    DEFAULT_SAFETY_SETTINGS,
+    get_base_model_name,
+    is_search_model,
+    get_thinking_budget,
+    should_include_thoughts
+)
 import asyncio
 
 
@@ -299,11 +306,30 @@ def build_gemini_payload_from_native(native_request: dict, model_from_path: str)
     Build a Gemini API payload from a native Gemini request.
     This is used for direct Gemini API calls.
     """
-    # Add default safety settings if not provided
-    if "safetySettings" not in native_request:
-        native_request["safetySettings"] = DEFAULT_SAFETY_SETTINGS
+    native_request["safetySettings"] = DEFAULT_SAFETY_SETTINGS
+    
+    if "generationConfig" not in native_request:
+        native_request["generationConfig"] = {}
+    
+    if "thinkingConfig" not in native_request["generationConfig"]:
+        native_request["generationConfig"]["thinkingConfig"] = {}
+    
+    # Configure thinking based on model variant
+    thinking_budget = get_thinking_budget(model_from_path)
+    include_thoughts = should_include_thoughts(model_from_path)
+    
+    native_request["generationConfig"]["thinkingConfig"]["includeThoughts"] = include_thoughts
+    native_request["generationConfig"]["thinkingConfig"]["thinkingBudget"] = thinking_budget
+    
+    # Add Google Search grounding for search models
+    if is_search_model(model_from_path):
+        if "tools" not in native_request:
+            native_request["tools"] = []
+        # Add googleSearch tool if not already present
+        if not any(tool.get("googleSearch") for tool in native_request["tools"]):
+            native_request["tools"].append({"googleSearch": {}})
     
     return {
-        "model": model_from_path,
+        "model": get_base_model_name(model_from_path),  # Use base model name for API call
         "request": native_request
     }
